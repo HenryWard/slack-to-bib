@@ -1,5 +1,7 @@
 #!/usr/bin/env Rscript
 
+suppressWarnings(library(methods))
+suppressWarnings(library(optparse))
 suppressWarnings(library(knitcitations))
 suppressWarnings(library(httr))
 suppressWarnings(library(jsonlite))
@@ -34,9 +36,19 @@ messages_to_doi <- function(messages) {
   messages$text <- tolower(messages$text)
   dois <- gsub("[\r\n]", " ", messages$text)
   dois <- unlist(strsplit(dois, " "))
+  
+  # Gets dois separated by whitespace after a colon
+  whitespace_dois <- which(dois=="doi:")
+  whitespace_dois <- dois[whitespace_dois+1]
+  
+  # Gets remaining dois
   dois <- dois[grepl("doi", dois)]
   dois <- dois[grepl("\\d", dois)]
+  
+  # Filters and returns dois
+  dois <- c(dois, whitespace_dois)
   dois <- filter_doi(dois)
+  print(dois)
   return(dois)
 }
 
@@ -48,17 +60,28 @@ filter_doi <- function(doi) {
   doi <- gsub("\"", "", doi)
   doi <- gsub("\'", "", doi)
   doi <- gsub("doi:", "", doi)
+  doi <- doi[doi != ""]
   return(doi)
 }
 
 # Turns a doi string into a bibtex citation
 doi_to_bib <- function(doi) {
   
-  # Parses string prefix
-  if (substr(doi, 1, 5) == "https") {
-    doi <- substr(doi, 17, nchar(doi))
-  } else if (substr(doi, 1, 4) == "http") {
-    doi <- substr(doi, 17, nchar(doi))
+  # Captures links to doi.org and ignores other links
+  if (startsWith(doi, "https") ) {
+    doi_temp <- substr(doi, 9, nchar(doi))
+    if (startsWith(doi_temp, "doi.org")) {
+      doi <- substr(doi, 17, nchar(doi))
+    } else { 
+      return(FALSE)
+    }
+  } else if (startsWith(doi, "http")) {
+    doi_temp <- substr(doi, 9, nchar(doi))
+    if (startsWith(doi_temp, "doi.org")) {
+      doi <- substr(doi, 16, nchar(doi))
+    } else { 
+      return(FALSE)
+    }
   }
   
   # Gets citation and stores in session memory
@@ -137,18 +160,19 @@ options = list(
               help="target slack channel id"),
   make_option(c("-b", "--bib_file"), type="character", default="citations.bib", 
               help="path to bibtex file to output or update [default= %default]"),
-  make_option(c("-l", "--last_timestamp_file"), type="character", default="timestamp.txt", 
+  make_option(c("-l", "--last_timestamp_file"), type="character", default=NA, 
               help="path to file containing the last timestamp [default= %default]"),
   make_option(c("-o", "--oldest"), type="character", default="week", 
               help="range of days to check slack history for [default= %default]")
 )
 
 # Extracts variables from args
-token_file <- opt$token_file
-channel_id <- opt$channel_id
-bib_file <- opt$bib_file
-last_timestamp_file <- opt$last_timestamp_file
-oldest <- opt$oldest
+options <- parse_args(OptionParser(option_list = options))
+token_file <- options$token_file
+channel_id <- options$channel_id
+bib_file <- options$bib_file
+last_timestamp_file <- options$last_timestamp_file
+oldest <- options$oldest
 
 # Calls main function
 slack_to_bib(token_file, channel_id, bib_file,
